@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>서무비서 - 서무 절차 안내</title>
+<link rel="stylesheet" href="/core/common.css">
+<style>
+  .timeline { list-style: none; padding: 0; margin: 8px 0; }
+  .timeline li { border-left: 3px solid var(--line); padding: 6px 0 10px 14px; position: relative; }
+  .timeline li::before { content: ""; position: absolute; left: -8px; top: 9px; width: 13px; height: 13px; border-radius: 50%; background: #fff; border: 3px solid var(--line); }
+  .timeline li.focus { border-left-color: var(--brand); }
+  .timeline li.focus::before { border-color: var(--brand); background: var(--brand); }
+  .timeline li.past { opacity: .55; }
+  .timeline li.overdue::before { border-color: var(--bad); }
+  .layer-col h3 { margin-top: 0; }
+  .role { font-size: 12px; }
+</style>
+</head>
+<body>
+<header class="top">
+  <div>
+    <h1>서무비서</h1>
+    <div class="sub">상황을 말하면 절차·기한·서식·결재선까지 안내</div>
+  </div>
+  <div class="spacer"></div>
+  <label class="role">사용자 구분 <select id="role"><option value="user">일반 사용자</option><option value="admin">관리자</option></select></label>
+  <span id="llm-badge" class="llm-badge">모델: …</span>
+</header>
+<nav class="tabs">
+  <button data-tab="chat">상황 말하기</button>
+  <button data-tab="cases">다음 할 일·처리 이력</button>
+  <button data-tab="cards">업무별 절차</button>
+  <button data-tab="kb">규정·서식 관리</button>
+  <button data-tab="revision">규정 개정 반영</button>
+  <button data-tab="profile">내 정보</button>
+  <button data-tab="log">작업 기록</button>
+</nav>
+<main>
+  <section class="tab" id="tab-chat">
+    <div class="panel">
+      <div class="row">
+        <input id="say" class="wide" style="flex:1;font-size:15px;padding:10px" placeholder='예: "출장 다녀와서 정산해야 해요. 어제 부산에서 1박 2일로 다녀왔어요"'>
+        <button class="primary" id="send">안내 받기</button>
+      </div>
+      <div class="row small" id="examples" style="margin-top:8px"></div>
+      <p class="small muted" id="today-note"></p>
+    </div>
+    <div id="answer"></div>
+  </section>
+  <section class="tab" id="tab-cases" hidden></section>
+  <section class="tab" id="tab-cards" hidden></section>
+  <section class="tab" id="tab-kb" hidden></section>
+  <section class="tab" id="tab-revision" hidden>
+    <div class="panel">
+      <h2>규정 개정 반영 (관리자)</h2>
+      <p class="small muted">개정된 규정 파일을 올리면 신구조문대비와 함께 바뀌는 절차(기한·서류·서식)를 먼저 보여주고, 확인 후 반영합니다. 이전 판은 자동으로 보관됩니다.</p>
+      <div class="row"><input type="file" id="rev-file" multiple><button class="primary" id="rev-preview">바뀌는 내용 미리보기</button>
+        <button id="rev-sample">시연용 개정본(여비규정 2026.11.) 사용</button></div>
+    </div>
+    <div id="rev-out"></div>
+  </section>
+  <section class="tab" id="tab-profile" hidden>
+    <div class="panel" style="max-width:520px">
+      <h2>내 정보</h2>
+      <p class="small muted">서식 초안을 채울 때 사용합니다. 이 PC의 작업 폴더에만 저장됩니다.</p>
+      <div id="profile-form"></div>
+      <button class="primary" id="profile-save" style="margin-top:10px">저장</button>
+    </div>
+  </section>
+  <section class="tab" id="tab-log" hidden></section>
+</main>
+<script src="/core/common.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>
