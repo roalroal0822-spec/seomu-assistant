@@ -308,6 +308,9 @@ def respond(kb, cards, text, today=None, llm=None):
     if nxt:
         lines.append(f"지금 할 일: {nxt['title']} — {nxt['deadline_label'] or '기한 없음'}"
                      + (f" → {nxt['due']}까지 (D{'-' if nxt['d_day'] >= 0 else '+'}{abs(nxt['d_day'])})" if nxt["due"] and nxt["d_day"] is not None else ""))
+        before = [s for s in todo if steps.index(s) < steps.index(nxt) and s["due"] and nxt["due"] and s["due"] <= nxt["due"]]
+        if before:
+            lines.append("먼저 챙길 일: " + ", ".join(f"{s['title']} ({s['due']}까지, D-{s['d_day']})" for s in before))
     past_exc = [n for s in steps if s["state"] == "past" for n in s.get("notes", []) if n.startswith("[예외]")]
     if past_exc:
         lines.append("사전 단계를 하지 않았다면 예외 규정을 확인하세요: " + past_exc[0].replace("[예외] ", ""))

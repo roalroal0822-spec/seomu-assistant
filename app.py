@@ -397,6 +397,12 @@ def chat(req):
                            "done": s["state"] == "past", "skipped": s["state"] == "past"} for s in res["steps"]],
                 "documents": [], "closed": False}
         cases = store.read("cases.json", [])
+        # 같은 상황을 다시 물으면 새 건을 만들지 않고 진행 중인 건을 새 계산으로 바꾼다
+        same = next((c for c in cases if not c.get("closed") and c["text"] == text and c["card_id"] == case["card_id"]
+                     and not any(st.get("done") and not st.get("skipped") for st in c["steps"])), None)
+        if same:
+            case["id"] = same["id"]
+            cases.remove(same)
         cases.insert(0, case)
         store.write("cases.json", cases)
         res["case_id"] = case["id"]
