@@ -255,6 +255,132 @@ async function renderLog() {
   sec.append(el("div", { class: "panel" }, el("h2", {}, "작업 기록"), el("table", { class: "t" }, history.map(h => el("tr", {}, el("td", { class: "small" }, h.at), el("td", {}, h.action), el("td", { class: "small" }, h.detail))))));
 }
 
+// ------------------------------------------------------------ 판정 결과 (시뮬레이터·사전점검 공통)
+const LV = { ok: "가능", warn: "주의", bad: "불가", gray: "판단 근거 없음" };
+function verdictView(r, title, question) {
+  const box = el("div", { class: "panel" });
+  box.append(el("div", { class: "verdict " + r.verdict },
+    el("div", { class: "big" }, r.label),
+    el("div", { class: "desc" }, r.summary || (r.counts ? `정상 ${r.counts.ok} · 확인 필요 ${r.counts.warn} · 규정 위반 가능성 ${r.counts.bad}` : ""))));
+  const list = el("div", {});
+  for (const f of r.findings) {
+    list.append(el("div", { class: "finding" }, el("i", { class: "dot " + f.level }),
+      el("div", {}, el("div", { class: "ttl" }, f.title),
+        f.detail ? el("div", { class: "muted", style: { marginTop: "2px" } }, f.detail) : null,
+        f.fix && f.fix.length ? el("div", { class: "fix" }, el("b", {}, "해결 방법 "), f.fix.map(x => el("div", {}, x))) : null,
+        f.basis ? el("div", { style: { marginTop: "6px" } }, basisChip(f.basis)) : null)));
+  }
+  box.append(list);
+  box.append(el("div", { class: "row", style: { marginTop: "16px", justifyContent: "space-between" } },
+    el("span", { class: "small muted" }, `점검 방식: ${r.mode} · 기준일 ${r.today || ""}`),
+    el("span", { class: "row" }, el("span", { class: "small muted" }, "결과 저장"),
+      exportButtons("/api/check/export", () => ({ ...r, title, question })))));
+  return box;
+}
+
+async function simulate(text) {
+  text = (text || $("#sim-text").value).trim();
+  if (!text) return;
+  $("#sim-text").value = text;
+  const out = $("#sim-out");
+  out.innerHTML = "";
+  out.append(el("div", { class: "panel" }, el("span", { class: "spinner" }), " 규정과 대조하는 중"));
+  const r = await api("POST", "/api/simulate", { text });
+  out.innerHTML = "";
+  out.append(verdictView(r, "업무 시뮬레이션 결과", text));
+}
+
+// ------------------------------------------------------------ 사전점검
+let PRE = { kind: "travel", spec: null };
+function iso(d) { return d.toISOString().slice(0, 10); }
+function addDays(s, n) { const d = new Date(s + "T00:00:00"); d.setDate(d.getDate() + n); return iso(d); }
+
+async function renderPre() {
+  if (!PRE.spec) PRE.spec = await api("GET", "/api/precheck/spec");
+  const kinds = PRE.spec.kinds;
+  const k = $("#pre-kinds"); k.innerHTML = "";
+  for (const [id, v] of Object.entries(kinds)) {
+    k.append(el("label", {}, el("input", { type: "radio", name: "pre-kind", value: id, checked: PRE.kind === id,
+      onchange: () => { PRE.kind = id; renderPreForm(); } }), v.name));
+  }
+  renderPreForm();
+}
+
+function field(label, input) { return el("div", {}, el("label", { class: "f" }, label), input); }
+
+function renderPreForm() {
+  const f = $("#pre-form"); f.innerHTML = ""; $("#pre-out").innerHTML = "";
+  const spec = PRE.spec.kinds[PRE.kind];
+  if (!spec) { f.append(el("div", { class: "empty" }, "점검할 절차가 규정에 없습니다.")); return; }
+  const inp = (id, type = "text", ph = "") => el("input", { id, type, placeholder: ph, class: "wide" });
+  if (PRE.kind === "travel") {
+    f.append(el("div", { class: "grid3" },
+      field("출장 시작일", inp("p-start", "date")), field("출장 종료일", inp("p-end", "date")), field("출장지", inp("p-dest", "text", "예: 부산")),
+      field("출장 신청(승인)일", inp("p-apply", "date")), field("출장 결과 보고일", inp("p-report", "date")), field("정산 제출(예정)일", inp("p-submit", "date"))));
+    f.append(el("label", { class: "f" }, "영수증"), el("div", { id: "p-receipts" }),
+      el("button", { class: "small", onclick: () => addReceipt() }, "+ 영수증 추가"));
+    f.append(el("label", { class: "f" }, "첨부서류 (" + spec.card + ")"),
+      el("div", { class: "row" }, spec.docs.map(d => el("label", { class: "small", style: { marginRight: "14px" } },
+        el("input", { type: "checkbox", class: "p-doc", value: d.name }), " " + d.name + (d.cond ? ` (${d.cond})` : "")))));
+  } else {
+    f.append(el("div", { class: "grid3" },
+      field("품명", inp("p-item", "text", "예: 업무용 노트북")), field("구매금액(원)", inp("p-amount", "number")), field("견적서 수", inp("p-quotes", "number")),
+      field("구매 요청일", inp("p-req", "date")), field("구매 희망일", inp("p-wish", "date")), el("div", {})));
+    f.append(el("div", { class: "row", style: { marginTop: "12px" } },
+      el("label", {}, el("input", { type: "checkbox", id: "p-approved" }), " 구매 요청 결재를 받았습니다"),
+      el("label", {}, el("input", { type: "checkbox", id: "p-purchased" }), " 이미 구매(결제)했습니다")));
+  }
+  f.append(el("div", { class: "row", style: { marginTop: "20px" } },
+    el("button", { class: "primary", onclick: runPre }, "AI 사전점검"),
+    el("button", { onclick: () => fillPreExample() }, "예시 채우기 (일부러 틀린 곳 포함)")));
+  if (PRE.kind === "travel") addReceipt();
+}
+
+function addReceipt(v = {}) {
+  const row = el("div", { class: "row p-rc", style: { marginBottom: "6px" } },
+    el("select", {}, ["숙박", "운임", "식비", "기타"].map(x => el("option", { value: x, selected: v.kind === x }, x))),
+    el("input", { type: "date", value: v.date || "" }),
+    el("input", { type: "number", placeholder: "금액(원)", value: v.amount || "" }),
+    el("button", { class: "small danger", onclick: () => row.remove() }, "삭제"));
+  $("#p-receipts").append(row);
+}
+
+function fillPreExample() {
+  const t = PRE.spec.today;
+  if (PRE.kind === "travel") {
+    const s = addDays(t, -12), e = addDays(t, -10);
+    $("#p-start").value = s; $("#p-end").value = e; $("#p-dest").value = "부산";
+    $("#p-apply").value = addDays(s, -1); $("#p-report").value = addDays(e, 3); $("#p-submit").value = t;
+    $("#p-receipts").innerHTML = "";
+    addReceipt({ kind: "숙박", date: e, amount: 95000 });
+    addReceipt({ kind: "운임", date: s, amount: 59800 });
+    $$(".p-doc").forEach(c => c.checked = false);
+  } else {
+    $("#p-item").value = "업무용 노트북 2대"; $("#p-amount").value = 2500000; $("#p-quotes").value = 1;
+    $("#p-req").value = t; $("#p-wish").value = addDays(t, 8);
+    $("#p-approved").checked = false; $("#p-purchased").checked = true;
+  }
+  toast("예시를 채웠습니다. AI 사전점검을 눌러 보세요.");
+}
+
+async function runPre() {
+  const v = id => ($("#" + id) || {}).value || "";
+  let fields;
+  if (PRE.kind === "travel") {
+    fields = { start: v("p-start"), end: v("p-end"), destination: v("p-dest"), apply_date: v("p-apply"), report_date: v("p-report"),
+      submit_date: v("p-submit"), attachments: $$(".p-doc").filter(c => c.checked).map(c => c.value),
+      receipts: $$(".p-rc").map(r => { const [k, d, a] = r.querySelectorAll("select, input"); return { kind: k.value, date: d.value, amount: a.value }; }).filter(x => x.date || x.amount) };
+  } else {
+    fields = { item: v("p-item"), amount: v("p-amount"), quotes: v("p-quotes"), request_date: v("p-req"), wish_date: v("p-wish"),
+      approved: $("#p-approved").checked, purchased: $("#p-purchased").checked };
+  }
+  const r = await api("POST", "/api/precheck", { kind: PRE.kind, fields });
+  r.today = PRE.spec.today;
+  const out = $("#pre-out"); out.innerHTML = "";
+  out.append(verdictView(r, "제출 전 사전점검 결과 (" + PRE.spec.kinds[PRE.kind].name + ")", ""));
+  out.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
 document.addEventListener("DOMContentLoaded", async () => {
   try { const r = localStorage.getItem("seomu:role"); if (r) $("#role").value = r; } catch (e) {}
   $("#role").onchange = () => { try { localStorage.setItem("seomu:role", role()); } catch (e) {} };
@@ -269,7 +395,12 @@ document.addEventListener("DOMContentLoaded", async () => {
   };
   $("#rev-preview").onclick = async () => { const f = $("#rev-file").files; if (!f.length) return toast("개정본 파일을 선택하세요", true); revPreview(await readFiles(f)); };
   $("#rev-sample").onclick = async () => { const s = await api("GET", "/api/revision/sample"); revPreview([s]); };
-  setupTabs(id => ({ cases: renderCases, cards: renderCards, kb: renderKB, profile: renderProfile, log: renderLog }[id] || (() => {}))());
+  $("#sim-run").onclick = () => simulate();
+  $("#sim-text").addEventListener("keydown", e => { if (e.key === "Enter") simulate(); });
+  ["출장비 정산을 10일 뒤에 제출하면 어떻게 돼?", "법인카드로 개인 물품을 같이 결제했다면?", "결재 없이 먼저 물품을 구매하면?",
+   "노트북 300만원짜리 사도 돼?", "연가를 3일 쓰려는데 2일 전에 신청하면?", "출장비 정산을 5일 뒤에 내면?"]
+    .forEach(x => $("#sim-examples").append(el("span", { class: "chip", onclick: () => simulate(x) }, x)));
+  setupTabs(id => ({ pre: renderPre, cases: renderCases, cards: renderCards, kb: renderKB, profile: renderProfile, log: renderLog }[id] || (() => {}))());
   const t = await api("GET", "/api/today");
   $("#today-note").textContent = `기준일: ${t.today} · 등록된 규정에서만 답하고, 모든 안내에 근거 조문을 붙입니다.`;
 });

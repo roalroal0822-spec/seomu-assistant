@@ -17,6 +17,7 @@ from core.store import Store
 from core.textutil import similarity
 
 import assistant
+import rules as rulelib
 import forms as formlib
 from knowledge import LAYERS, Knowledge, deadline_label
 
@@ -506,6 +507,56 @@ def form_fill(req):
         store.write("cases.json", cs)
     log("서식 초안 작성", name + (f" (빈 항목: {', '.join(left)})" if left else ""))
     return file_response(filled, name)
+
+
+# ------------------------------------------------------------ 업무 시뮬레이터 · 사전점검
+
+def _rules():
+    return rulelib.extract_rules(kb(), STATE["cards"])
+
+
+@app.post("/api/simulate")
+def simulate(req):
+    text = (req.json.get("text") or "").strip()
+    if not text:
+        raise HttpError(400, "상황을 입력해 주세요")
+    r = rulelib.simulate(kb(), STATE["cards"], _rules(), text, today())
+    r["today"] = today().isoformat()
+    log("업무 시뮬레이터", f"{text} → {r['label']}")
+    return r
+
+
+@app.get("/api/precheck/spec")
+def precheck_spec(req):
+    kb()
+    return {"kinds": rulelib.spec(STATE["cards"]), "today": today().isoformat()}
+
+
+@app.post("/api/precheck")
+def precheck(req):
+    b = req.json
+    r = rulelib.precheck(kb(), STATE["cards"], _rules(), b.get("kind"), b.get("fields") or {}, today())
+    if r.get("error"):
+        raise HttpError(400, r["error"])
+    log("사전점검", f"{b.get('kind')} → {r['label']} (위반 가능성 {r['counts']['bad']}, 확인 필요 {r['counts']['warn']})")
+    return r
+
+
+@app.post("/api/check/export")
+def check_export(req):
+    """시뮬레이터·사전점검 결과를 문서로 저장."""
+    r = req.json
+    mark = {"ok": "정상", "warn": "확인 필요", "bad": "위반 가능성", "gray": "판단 근거 없음"}
+    blocks = [("title", r.get("title") or "규정 점검 결과"), ("p", f"판정: {r.get('label', '')} · 기준일: {r.get('today', today().isoformat())} · 점검 방식: {r.get('mode', '')}")]
+    if r.get("question"):
+        blocks.append(("p", f"상황: {r['question']}"))
+    blocks.append(("table", ["구분", "내용", "근거", "해결 방법"],
+                   [[mark.get(f["level"], ""), f["title"] + "\n" + f.get("detail", ""),
+                     (f"{f['basis'].get('reg', '')} {f['basis'].get('label', '')}" if f.get("basis") else ""),
+                     "\n".join(f.get("fix", []))] for f in r.get("findings", [])], [1, 4, 2, 3]))
+    fmt = req.query.get("fmt", "hwpx")
+    data, ctype = export(blocks, fmt)
+    return file_response(data, f"규정점검결과.{fmt}", ctype)
 
 
 @app.post("/api/guide/export")

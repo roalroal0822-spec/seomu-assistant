@@ -21,6 +21,7 @@ SYN = {
     "휴가": ["휴가", "연가", "병가", "쉬", "아파", "진단서", "월차"],
     "초과근무": ["초과근무", "야근", "시간외", "늦게까지", "주말근무"],
     "물품": ["물품", "구매", "사야", "비품", "소모품", "검수", "납품", "구입"],
+    "법인카드": ["법인카드", "카드", "결제", "사용 내역"],
     "행사": ["행사", "개최", "이벤트", "설명회", "축제", "워크숍"],
     "회의": ["회의", "회의록"],
     "문서": ["문서", "접수", "등록"],
@@ -31,6 +32,7 @@ DOC_WORDS = re.compile(r"([가-힣A-Za-z()\s]{1,20}?(?:신청서|보고서|계�
 FORM_REF = re.compile(r"별지\s*제?\s*(\d+)\s*호\s*서식(?:의|에 따른)?\s*([가-힣\s]{0,20}?(?:서|조서|대장))?")
 ACTOR = re.compile(r"^([가-힣\s]{1,15}?)(?:은|는)\s")
 
+PROHIBIT = re.compile(r"아니\s*된다|할\s*수\s*없다|금지한다|금지된다")
 AFTER_ANCHOR = re.compile(r"마친|종료|끝난|복귀|납품된|받은|끝나|완료|근무한")
 BEFORE_ANCHOR = re.compile(r"출발|예정일|희망일|개최|시작")
 
@@ -254,6 +256,11 @@ class Knowledge:
             sentence = p.text
             items = [it.text for it in p.items]
             full = sentence + " " + " ".join(items)
+            if PROHIBIT.search(sentence.split("다만")[0]):
+                # 금지 조항은 절차 단계가 아니라 점검 규칙(rules.py)으로 쓴다
+                if main is not None:
+                    main["notes"].append(sentence)
+                continue
             if not OBLIGATION.search(full) and not parse_deadline(full):
                 if main is not None and sentence:
                     main["notes"].append(sentence)
@@ -294,7 +301,7 @@ class Knowledge:
         return steps
 
     def _category(self, text):
-        for k in ("출장", "물품", "휴가", "초과근무", "행사", "회의", "문서"):
+        for k in ("법인카드", "출장", "물품", "휴가", "초과근무", "행사", "회의", "문서"):
             if any(s in text for s in SYN[k][:3]):
                 return k
         return ""

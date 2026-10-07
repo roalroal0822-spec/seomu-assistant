@@ -24,7 +24,7 @@
   <span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1"/><path d="M9 10h6M9 14h6M9 18h3"/></svg></span>
   <div>
     <h1>서무비서</h1>
-    <div class="sub">상황을 말하면 절차·기한·서식·결재선까지 안내</div>
+    <div class="sub">말하면, 규정이 답합니다.</div>
   </div>
   <div class="spacer"></div>
   <label class="role">사용자 구분 <select id="role"><option value="user">일반 사용자</option><option value="admin">관리자</option></select></label>
@@ -32,6 +32,8 @@
 </header>
 <nav class="tabs">
   <button data-tab="chat">상황 말하기</button>
+  <button data-tab="sim">업무 시뮬레이터</button>
+  <button data-tab="pre">AI 사전점검</button>
   <button data-tab="cases">다음 할 일·처리 이력</button>
   <button data-tab="cards">업무별 절차</button>
   <button data-tab="kb">규정·서식 관리</button>
@@ -50,6 +52,28 @@
       <p class="small muted" id="today-note"></p>
     </div>
     <div id="answer"></div>
+  </section>
+  <section class="tab" id="tab-sim" hidden>
+    <div class="panel">
+      <h2>이렇게 하면 어떻게 되나요?</h2>
+      <p class="small muted">행동하기 전에 결과를 미리 확인합니다. 규정과 대조해 가능 · 주의 · 불가로 판정하고, 걸리는 조문과 해결 방법을 보여 줍니다.</p>
+      <div class="row">
+        <input id="sim-text" class="wide" style="flex:1" placeholder='예: "출장비 정산을 10일 뒤에 제출하면 어떻게 돼?"'>
+        <button class="primary" id="sim-run">결과 미리 보기</button>
+      </div>
+      <div class="row" id="sim-examples" style="margin-top:10px"></div>
+    </div>
+    <div id="sim-out"></div>
+  </section>
+  <section class="tab" id="tab-pre" hidden>
+    <div class="panel">
+      <div class="row"><h2 style="flex:1;margin:0">제출 전 AI 사전점검</h2>
+        <div class="legend"><span><i class="dot ok"></i>정상</span><span><i class="dot warn"></i>확인 필요</span><span><i class="dot bad"></i>규정 위반 가능성</span></div></div>
+      <p class="small muted">작성한 내용을 규정과 비교해 기한, 첨부서류, 영수증 날짜, 금액 기준, 결재 여부를 확인합니다.</p>
+      <div class="row" id="pre-kinds"></div>
+      <div id="pre-form" style="margin-top:8px"></div>
+    </div>
+    <div id="pre-out"></div>
   </section>
   <section class="tab" id="tab-cases" hidden></section>
   <section class="tab" id="tab-cards" hidden></section>
