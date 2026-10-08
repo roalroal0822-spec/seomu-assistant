@@ -19,7 +19,7 @@ from assistant import REGION_METRO, _expand, extract_slots, team_of
 
 RX_AMOUNT = re.compile(r"(\d[\d,]*)\s*(천만|만|억)?\s*원\s*(?:을|를|이|가)?\s*(초과|이상|미만|이하)")
 RX_VIOLATE = re.compile(r"제(\d+)조(?:의(\d+))?(?:\s*제(\d+)항)?\s*를?\s*위반")
-STOP = {"공단", "경우", "다음", "각호", "해당", "규정", "지침", "직원", "사용", "하는", "있는", "이내", "이상", "그밖", "가람구시설관리공단",
+STOP = {"공단", "기관", "경우", "다음", "각호", "해당", "규정", "지침", "직원", "사용", "하는", "있는", "이내", "이상", "그밖", "공공기관",
         "제1항", "제2항", "따른", "대한", "관한", "통해", "하면", "어떻게", "되나요", "돼요", "했다면", "하면요", "어떻게돼"}
 LEVEL = {"ok": 0, "gray": 0, "warn": 1, "bad": 2}
 VERDICT = {"ok": "가능", "warn": "주의", "bad": "불가", "gray": "판단 근거 없음(확인 필요)"}
@@ -75,7 +75,7 @@ def extract_rules(kb, cards):
                 sent = (p.text + " " + " ".join(it.text for it in p.items)).strip()
                 head, _, exc = sent.partition("다만,")
                 basis = _basis(r, a, p)
-                kw = words(head) | words(a.title) | words(re.sub(r"^\S*공단\s*", "", reg.title))
+                kw = words(head) | words(a.title) | words(re.sub(r"^\S*(?:공단|공공기관)\s*", "", reg.title))
                 if PROHIBIT.search(head):
                     rules.append({"type": "prohibit", "text": head.strip(), "exception": exc.strip(), "kw": kw,
                                   "consequence": consequences.get((r["id"], a.key), []), "basis": basis})

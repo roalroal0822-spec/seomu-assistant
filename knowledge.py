@@ -236,7 +236,7 @@ class Knowledge:
                 if not steps:
                     continue
                 base = re.sub(r"^제\d+장\s*", "", chapter).strip() if chaptered and chapter else ""
-                title = re.sub(r"^\S*공단\s*", "", reg.title)
+                title = re.sub(r"^\S*(?:공단|공공기관)\s*", "", reg.title)
                 name = base or re.sub(r"(규정|지침|기준)$", "", title).strip()
                 if not name.endswith(("절차", "업무")):
                     name = name + " 절차"
@@ -318,7 +318,7 @@ class Knowledge:
     def _keywords(self, name, reg, steps):
         kws = []
         for w in re.findall(r"[가-힣]{2,}", name + " " + reg.title + " " + " ".join(s["title"] for s in steps)):
-            if w not in kws and w not in ("절차", "공단", "규정", "지침", "가람구시설관리공단"):
+            if w not in kws and w not in ("절차", "공단", "기관", "규정", "지침", "공공기관"):
                 kws.append(w)
         for a in reg.articles:
             if a.title == "정의":
