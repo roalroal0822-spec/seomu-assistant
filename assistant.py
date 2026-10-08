@@ -7,10 +7,20 @@ from core.textutil import parse_relative_date, RE_FULL_DATE, RE_MD
 
 from knowledge import SYN, deadline_label
 
-AFTER_CUES = re.compile(r"다녀왔|다녀와서|갔다\s*왔|끝났|끝나고|마쳤|마치고|복귀|납품\s*(됐|되었|받)|받았|했어요|했는데|후에|지났")
-BEFORE_CUES = re.compile(r"갈\s|가려|갈\s*예정|예정|하려고|하려는|할\s*거|계획|신청하려|다음\s*주|내일|모레|쓰려|사려|열려고|개최")
+AFTER_CUES = re.compile(r"다녀왔|다녀온|다녀와서|갔다\s*왔|끝났|끝나고|마쳤|마치고|복귀|납품\s*(됐|되었|받)|받았|했어요|했는데|후에|지났")
+BEFORE_CUES = re.compile(r"(?<!다녀)가요|갑니다|갈\s|가려|갈\s*예정|예정|하려고|하려는|할\s*거|계획|신청하려|다음\s*주|내일|모레|쓰려|사려|열려고|개최")
 
 REGION_METRO = ("부산", "대구", "인천", "광주", "대전", "울산", "세종")
+RX_YEAR_WORD = re.compile(r"(작년|지난\s*해|재작년|올해|금년|이번\s*해|내년|다음\s*해)\s*$")
+YEAR_OFFSET = {"재작년": -2, "작년": -1, "지난해": -1, "올해": 0, "금년": 0, "이번해": 0, "내년": 1, "다음해": 1}
+LEAVE_TYPES = {"연차": "연가", "연가": "연가", "월차": "연가", "반차": "연가", "병가": "병가", "공가": "공가", "특별휴가": "특별휴가"}
+RX_DEST = (re.compile(r"([가-힣]{2,10}?)(?:으로|로|에)\s*(?:출장|다녀|갔|가)"),
+           re.compile(r"(?:^|\s)([가-힣]{2,6}?)(?:으로|로|에)?\s*출장"),  # '제주 출장', '관외 출장'
+           re.compile(r"([가-힣]{2,6}?)(?:에서|으로|로)\s"))
+DEST_STOP = ("출장", "어제", "오늘", "내일", "그제", "지난주", "다음주", "이번주", "다음", "이번", "당일", "회사", "사무실", "근무지")
+GWANNAE = ("관내", "구청", "가람", "구내", "근무지 내")
+RX_LOSS = re.compile(r"([가-힣A-Za-z]+?)(?:을|를|이|가|도)?\s*(?:잃어버|잃었|분실|도난|없어졌)")
+RX_APPROVAL_Q = re.compile(r"결재|전결|결재선|누구한테\s*(?:받|올)|누구에게\s*(?:받|올)")
 
 
 # ------------------------------------------------------------ 상황에서 정보 뽑기
@@ -23,12 +33,17 @@ def extract_slots(text, today):
             dates.append(date(int(m.group(1)), int(m.group(2)), int(m.group(3))))
         except ValueError:
             pass
+    after = bool(AFTER_CUES.search(text))
     if not dates:
         for m in RE_MD.finditer(text):
+            yw = RX_YEAR_WORD.search(text[max(0, m.start() - 8):m.start()])
             try:
-                d = date(today.year, int(m.group(1)), int(m.group(2)))
-                if d > today + timedelta(days=200):
-                    d = date(today.year - 1, d.month, d.day)
+                if yw:
+                    d = date(today.year + YEAR_OFFSET[re.sub(r"\s", "", yw.group(1))], int(m.group(1)), int(m.group(2)))
+                else:
+                    d = date(today.year, int(m.group(1)), int(m.group(2)))
+                    if d > today + timedelta(days=200) or (after and d > today):
+                        d = date(today.year - 1, d.month, d.day)  # 다녀왔다는 말인데 날짜가 앞이면 지난해
                 dates.append(d)
             except ValueError:
                 pass
@@ -40,8 +55,8 @@ def extract_slots(text, today):
     if m:
         s["nights"], s["days"] = int(m.group(1)), int(m.group(2))
     else:
-        m = re.search(r"(\d+)\s*일\s*(?:동안|간|짜리)", text) or re.search(r"(?:연가|휴가|병가)\s*(\d+)\s*일", text) \
-            or re.search(r"(\d+)\s*일\s*(?:연가|휴가|병가|출장)", text)
+        m = re.search(r"(\d+)\s*일\s*(?:동안|간|짜리)", text) or re.search(r"(?:연가|연차|휴가|병가|출장)\s*(\d+)\s*일(?!\s*전)", text) \
+            or re.search(r"(\d+)\s*일\s*(?:연가|연차|휴가|병가|출장)", text)
         if m:
             s["days"] = int(m.group(1))
     m = re.search(r"당일", text)
@@ -52,11 +67,11 @@ def extract_slots(text, today):
         if len(dates) > 1:
             s["end_date"] = dates[-1].isoformat()
             s.setdefault("days", (dates[-1] - dates[0]).days + 1)
-    m = re.search(r"([가-힣]{2,10}?)(?:으로|로|에)\s*(?:출장|다녀|갔|가)", text)
-    if not m:
-        m = re.search(r"([가-힣]{2,6}?)(?:에서|으로|로)\s", text)
-    if m and m.group(1) not in ("출장", "어제", "오늘", "내일", "그제", "지난주", "다음주", "회사", "사무실", "근무지"):
-        s["destination"] = m.group(1)
+    for rx in RX_DEST:
+        m = rx.search(text)
+        if m and m.group(1) not in DEST_STOP and not re.search(r"요일$|부터|까지|다녀|갔|가는|가려|하는|온$", m.group(1)):
+            s["destination"] = m.group(1)
+            break
     m = re.search(r"([가-힣\s]{2,20}?)\s*(회의|교육|점검|행사|설명회|워크숍|협의)(?:\s*때문|\s*참석|\s*하러|\s*으로|\s*로|\s*가|\s*에)", text)
     if m:
         s["purpose"] = (m.group(1).strip().split()[-1] + " " + m.group(2)).strip()
@@ -71,7 +86,11 @@ def extract_slots(text, today):
     m = re.search(r"(?:운임|교통비|차비|기차표|KTX)\D{0,6}(\d[\d,]*)\s*원", text)
     if m:
         s["fare"] = int(m.group(1).replace(",", ""))
-    if AFTER_CUES.search(text):
+    for k, v in LEAVE_TYPES.items():
+        if k in text:
+            s["leave"] = v
+            break
+    if after:
         s["stage"] = "after"
     elif BEFORE_CUES.search(text):
         s["stage"] = "before"
@@ -151,6 +170,15 @@ def approval_line(kb, card, slots):
     if days is None and card["category"] == "휴가" and slots.get("date"):
         days, assumed = 1, "기간을 말하지 않아 1일로 가정"
     dest = slots.get("destination", "")
+    leave = slots.get("leave")
+    if card["category"] == "휴가" and leave:
+        kinds = set(LEAVE_TYPES.values())
+        rows = [r for r in rows if leave in (r[idx.get("세부 내용", 1)] or "")
+                or not any(k in (r[idx.get("세부 내용", 1)] or "") for k in kinds)]
+        if not rows:
+            return {"line": None, "candidates": [], "source": t["rel"],
+                    "note": f"위임전결표에 {leave} 결재 기준이 없습니다. 소속 부서장에게 확인하세요."}
+    gwannae = bool(dest) and any(x in dest for x in GWANNAE)
     for r in rows:
         detail = r[idx.get("세부 내용", 1)] or ""
         ok = True
@@ -167,16 +195,20 @@ def approval_line(kb, card, slots):
                 ok = False
             else:
                 ok = ok and (amount <= v if cmp == "이하" else amount > v)
-        if "관내" in detail and dest and dest not in ("관내", "구청", "가람"):
+        if "관내" in detail and not gwannae:
+            ok = False  # 출장지를 모르면 관내로 가정하지 않는다
+        if "관외" in detail and (not dest or gwannae):
             ok = False
-        if "관외" in detail and not dest:
-            ok = ok and days is not None
         if ok:
             chosen, why = r, detail
             break
     cand = [{"detail": r[1], "draft": r[2], "review": r[3], "final": r[4]} for r in rows]
     if not chosen:
-        return {"line": None, "candidates": cand, "note": "기간·금액을 알려주면 결재선을 정할 수 있습니다", "source": t["rel"]}
+        need = []
+        if card["category"] == "출장" and not dest:
+            need.append("출장지(관내/관외)")
+        need.append("기간·금액")
+        return {"line": None, "candidates": cand, "note": f"{'·'.join(need)}을 알려주면 결재선을 정할 수 있습니다", "source": t["rel"]}
     line = [chosen[idx.get("기안", 2)]] + [x.strip() for x in (chosen[idx.get("검토", 3)] or "").split(",") if x.strip()] + [chosen[idx.get("전결권자", 4)]]
     return {"line": [x for x in line if x], "basis": why, "candidates": cand, "source": t["rel"], "note": assumed}
 
@@ -217,6 +249,27 @@ LLM_SYSTEM = """당신은 공공기관 서무 담당자를 돕는 비서입니�
 "destination":"","purpose":"","amount":0,"reply":"사용자에게 줄 한두 문장 안내"}"""
 
 
+def _relevant(card, q):
+    """카드의 핵심어가 (동의어를 넓힌) 질문에 하나라도 있는지."""
+    return any(len(k) >= 2 and k in q for k in card["keywords"])
+
+
+def _kb_mentions(kb, rx):
+    return any(re.search(rx, a.to_text()) for r in kb.regs if r["layer"] in ("org", "common") for a in r["reg"].articles)
+
+
+def team_of(kb, reg_id):
+    """규정 본문에 가장 많이 나오는 담당 부서(○○팀). 없으면 부서장."""
+    reg = next((r["reg"] for r in kb.regs if r["id"] == reg_id), None)
+    if not reg:
+        return "담당 부서"
+    text = " ".join(a.to_text() for a in reg.articles)
+    teams = re.findall(r"([가-힣]{2,6}팀)(?=에|에게|은|이|장)", text)
+    if teams:
+        return max(sorted(set(teams)), key=teams.count)
+    return "소속 부서장" if "부서장" in text else "규정 소관 부서"
+
+
 def respond(kb, cards, text, today=None, llm=None):
     today = today or date.today()
     slots = extract_slots(text, today)
@@ -240,8 +293,29 @@ def respond(kb, cards, text, today=None, llm=None):
                 if isinstance(out.get(k), int) and out[k] > 0:
                     slots.setdefault(k, out[k])
             llm_reply = (out.get("reply") or "").strip()
-        except Exception as e:
-            llm_note = f"모델 응답 실패로 규칙 기반 결과를 보여 드립니다 ({e})"
+        except Exception:
+            llm_note = "모델 응답을 받지 못해 규칙 기반 결과를 보여 드립니다(모델 연결 설정을 확인하세요)."
+
+    top = ranked[0][0] if ranked else None
+    top_rel = bool(top) and _relevant(top, q)
+    # 결재 문의인데 어떤 업무인지 알 수 없으면: 업무를 묻고 위임전결 기준을 보여 준다
+    if RX_APPROVAL_Q.search(text) and not top_rel:
+        t = kb.table_find(r"위임전결|전결")
+        return {"type": "none", "text": "어떤 업무의 결재인지 알려 주세요(예: 출장, 연가, 물품 구매, 행사). 업무와 기간·금액에 따라 결재선이 달라집니다."
+                + (" 아래는 등록된 위임전결 기준입니다." if t else " 등록된 위임전결 기준표가 없습니다."),
+                "delegation": {"header": t["table"]["header"], "rows": t["table"]["rows"], "source": t["rel"]} if t else None,
+                "slots": slots}
+    # 분실처럼 등록된 규정에 처리 기준이 없는 상황: 엉뚱한 절차를 내놓지 않는다
+    loss_note = ""
+    lm = RX_LOSS.search(text)
+    if lm and not _kb_mentions(kb, r"분실|잃어버|도난|망실|멸실"):
+        obj = lm.group(1)
+        team = team_of(kb, top["reg_id"]) if top_rel else "담당 부서"
+        msg = f"등록된 규정에 {obj} 분실 시 처리 기준이 없습니다. 근거 없이 안내하지 않으니 {team}에 확인하세요."
+        if not top_rel or not re.search(r"영수증|서류|진단서|보고서|증빙|사본|신청서|승차권", obj):
+            return {"type": "none", "text": msg + (f" (참고: 관련 규정은 '{top['regulation']}'입니다.)" if top_rel else ""),
+                    "slots": slots}
+        loss_note = msg
 
     # 공통 기준 조문으로만 답할 수 있는 질문
     common_hit = None
@@ -266,9 +340,19 @@ def respond(kb, cards, text, today=None, llm=None):
 
     card = ranked[0][0]
     # 현재 단계: 질문과 가장 가까운 단계, 사후 상황이면 사후 단계부터
-    sidx = BM25(list(range(len(card["steps"]))), lambda i: card["steps"][i]["title"] * 3 + " " + card["steps"][i]["action"])
-    sh = sidx.search(q, k=1)
+    sidx = BM25(list(range(len(card["steps"]))), lambda i: (card["steps"][i]["title"] + " ") * 3 + card["steps"][i]["action"])
+    # 다른 부서가 처리하는 단계('… - 회계팀')는 내 할 일이 아니다
+    sh = [h for h in sidx.search(q, k=len(card["steps"])) if " - " not in card["steps"][h[0]]["title"]]
+    leave = slots.get("leave")
+    if leave:  # '병가 3일'이면 연가 단계가 아니라 병가 단계부터
+        sh = [h for h in sh if card["steps"][h[0]]["title"].startswith(leave)] or sh
     focus = sh[0][0] if sh else 0
+    fdl = card["steps"][focus].get("deadline")
+    tw = [w for w in re.findall(r"[가-힣]{2,}", card["steps"][focus]["title"]) if w not in card["name"]]
+    if slots.get("stage") == "before" and fdl and fdl["kind"] == "after" and fdl.get("event") == "end" \
+            and any(w in text for w in tw) \
+            and not slots.get("date") and not re.search(r"갈\s|가려|갈\s*예정|떠나|출발|가요|갑니다|가는", text):
+        slots["stage"] = "after"  # '정산하려는데'처럼 마친 뒤에 하는 단계를 하려는 상황
     if slots.get("stage") == "after":
         after_steps = [i for i, s in enumerate(card["steps"]) if s.get("deadline") and s["deadline"]["kind"] in ("after", "now")]
         if after_steps and focus not in after_steps:
@@ -288,20 +372,37 @@ def respond(kb, cards, text, today=None, llm=None):
             state = "past"
         elif d_day is not None and d_day < 0:
             state = "overdue"
+        th = re.search(r"(\d+)\s*일\s*이상", s["action"].split("다만")[0])
+        cond = f"{th.group(1)}일 이상인 경우에만" if th else ""
+        if th and slots.get("days") is not None and slots["days"] < int(th.group(1)):
+            state = "na"
+            cond = f"{th.group(1)}일 이상인 경우에만 해당(말씀하신 기간 {slots['days']}일)"
+        other = [v for v in set(LEAVE_TYPES.values()) if v != leave and s["title"].startswith(v)]
+        if leave and other:
+            state, cond = "na", f"{other[0]}에 관한 단계(이번 건은 {leave})"
         forms = []
         for f in s["forms"]:
             ff = kb.form_by_no(f["no"])
             forms.append({"no": f["no"], "name": f["name"] or (ff["name"] if ff else ""), "form_id": ff["id"] if ff else None,
                           "exists": ff is not None})
         steps.append({**s, "deadline_label": deadline_label(s.get("deadline")), "due": due.isoformat() if due else None,
-                      "due_base": base, "d_day": d_day, "state": state, "forms": forms, "focus": i == focus})
+                      "due_base": base, "d_day": d_day, "state": state, "forms": forms, "focus": i == focus, "condition": cond})
     todo = [s for s in steps if s["state"] == "todo"]
     nxt = next((s for s in todo if s["focus"]), todo[0] if todo else None)
     approval = approval_line(kb, card, slots)
     cost = travel_cost(kb, slots) if card.get("category") == "출장" else None
     tips = kb.tips_for(card)
     overrides = kb.common_overrides(card)
+    if nxt is None or nxt["state"] != "todo":
+        nxt = todo[0] if todo else None
+    if nxt is None:  # 남은 단계가 모두 기한을 넘긴 경우: 지난 단계 중 가장 급한 것을 알려 준다
+        over_ = [s for s in steps if s["state"] == "overdue" and " - " not in s["title"]]
+        nxt = next((s for s in over_ if s["focus"]), over_[0] if over_ else None)
+    for s in steps:
+        s["focus"] = bool(nxt) and s is nxt
     lines = []
+    if loss_note:
+        lines.append(loss_note)
     if llm_reply:
         lines.append(llm_reply)
     lines.append(f"'{card['name']}'에 해당합니다 (근거: {card['regulation']}).")

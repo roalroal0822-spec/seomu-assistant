@@ -26,7 +26,13 @@ async function ask(text) {
   r.question = text;
   LAST = r;
   out.innerHTML = "";
-  if (r.type === "none") { out.append(el("div", { class: "panel" }, r.text)); return; }
+  if (r.type === "none") {
+    const d = r.delegation;
+    out.append(el("div", { class: "panel" }, el("p", {}, r.text),
+      d ? el("table", { class: "t" }, el("tr", {}, d.header.map(h => el("th", {}, h))), d.rows.map(row => el("tr", {}, row.map(c => el("td", {}, c ?? ""))))) : null,
+      d ? el("p", { class: "small muted" }, `근거: ${d.source}`) : null));
+    return;
+  }
   if (r.type === "common") {
     out.append(el("div", { class: "panel" }, el("p", {}, r.text),
       r.deadline ? el("p", {}, el("b", {}, "기한: "), r.deadline, r.due ? ` → ${r.due}` : "") : null,
@@ -38,7 +44,7 @@ async function ask(text) {
       el("span", { class: "small muted" }, `기준일 ${r.today} · ${r.mode}`)),
     el("p", { style: { whiteSpace: "pre-wrap", fontSize: "15px" } }, r.text),
     Object.keys(r.slots).length ? el("div", { class: "small muted" }, "알아들은 정보: ",
-      Object.entries(r.slots).map(([k, v]) => el("span", { class: "chip" }, `${{ date: "날짜", end_date: "마친 날", days: "일수", nights: "박", destination: "장소", purpose: "목적", amount: "금액", transport: "교통", fare: "운임", stage: "단계" }[k] || k}: ${v === "after" ? "사후" : v === "before" ? "사전" : v}`))) : null,
+      Object.entries(r.slots).map(([k, v]) => el("span", { class: "chip" }, `${{ date: "날짜", end_date: "마친 날", days: "일수", nights: "박", destination: "장소", purpose: "목적", amount: "금액", transport: "교통", fare: "운임", stage: "단계", leave: "휴가 종류" }[k] || k}: ${v === "after" ? "사후" : v === "before" ? "사전" : v}`))) : null,
     r.alternatives.length ? el("div", { class: "small muted", style: { marginTop: "6px" } }, "다른 후보: ", r.alternatives.map(a => el("span", { class: "chip" }, a.name))) : null,
     el("div", { class: "row", style: { marginTop: "8px" } }, el("span", { class: "small muted" }, "안내서 저장:"), exportButtons("/api/guide/export", () => LAST)));
   out.append(head);
@@ -48,8 +54,10 @@ async function ask(text) {
     tl.append(el("li", { class: (s.focus ? "focus " : "") + s.state },
       el("div", { class: "row" }, el("b", {}, s.title), s.focus ? el("span", { class: "tag info" }, "지금 할 일") : null,
         s.state === "past" ? el("span", { class: "tag gray" }, "지난 단계") : null, s.state === "overdue" ? el("span", { class: "tag bad" }, "기한 지남") : null,
+        s.state === "na" ? el("span", { class: "tag gray", title: s.condition || "" }, "해당 없음") : null,
         el("span", { style: { flex: 1 } }), el("span", { class: "small" }, s.deadline_label || "기한 없음"), dTag(s)),
       el("div", { class: "small", style: { margin: "3px 0" } }, s.action),
+      s.condition ? el("div", { class: "small muted" }, "적용 조건: " + s.condition) : null,
       s.docs.length ? el("div", { class: "small" }, el("b", {}, "필요 서류: "), s.docs.join(", ")) : null,
       s.forms.length ? el("div", { class: "small row" }, el("b", {}, "서식: "), s.forms.map(f => f.exists
         ? el("span", {}, el("button", { class: "small primary", onclick: () => fillForm(f.form_id, r) }, `별지 ${f.no}호 ${f.name} 초안 채우기`),
@@ -90,6 +98,8 @@ async function fillForm(formId, r) {
   const inputs = {};
   const body = el("div", {},
     el("p", { class: "small muted" }, "상황·내 정보·여비 기준으로 미리 채웠습니다. 고친 뒤 내려받으세요. 원본 서식은 바뀌지 않습니다."),
+    p.form.fill_mode === "label" ? el("p", { class: "small muted" }, "이 서식에는 {{항목}} 자리표시가 없어, 표에서 항목 이름 오른쪽 빈 칸을 찾아 채웁니다. 내려받은 뒤 위치를 확인하세요.") : null,
+    !p.form.fields.length ? el("p", { class: "small", style: { color: "var(--bad, #c0392b)" } }, "이 서식에서 채울 자리({{항목}} 자리표시나 '성명·소속' 같은 항목 이름 옆 빈 칸)를 찾지 못했습니다. 내려받으면 원본 사본이 나옵니다.") : null,
     el("div", { class: "kv", style: { gridTemplateColumns: "120px 1fr" } }, p.form.fields.map(f => [el("div", {}, f), inputs[f] = el("input", { class: "wide", value: p.values[f] ?? "" })])));
   modal(`${p.form.name} 초안`, body, el("div", { class: "row", style: { marginTop: "12px" } },
     el("button", { class: "primary", onclick: () => {
@@ -213,7 +223,7 @@ async function renderKB() {
   }
   sec.append(cols);
   sec.append(el("div", { class: "panel" }, el("h2", {}, `등록된 서식 (${kb.forms.length})`),
-    el("p", { class: "small muted" }, "서식 파일 안의 {{항목}} 자리를 자동으로 채웁니다. 파일 이름을 '별지3_여비정산신청서.hwpx'처럼 번호로 시작하면 규정의 별지 번호와 연결됩니다."),
+    el("p", { class: "small muted" }, "서식 파일 안의 {{항목}} 자리표시를 채우고, 자리표시가 없는 한글(hwpx) 서식은 표에서 '성명·소속·직급·출장지·기간' 같은 항목 이름 오른쪽 빈 칸을 찾아 채웁니다(찾지 못한 항목은 비워 둡니다). 파일 이름을 '별지3_여비정산신청서.hwpx'처럼 번호로 시작하면 규정의 별지 번호와 연결됩니다."),
     el("table", { class: "t" }, el("tr", {}, ["별지", "서식", "채우는 항목", ""].map(h => el("th", {}, h))),
       kb.forms.map(f => el("tr", {}, el("td", {}, f.no ? `제${f.no}호` : "-"), el("td", {}, f.name), el("td", { class: "small" }, f.fields.join(", ")),
         el("td", {}, el("a", { href: `/api/kb/form/${f.id}` }, "내려받기")))))));
@@ -256,7 +266,7 @@ async function renderLog() {
 }
 
 // ------------------------------------------------------------ 판정 결과 (시뮬레이터·사전점검 공통)
-const LV = { ok: "가능", warn: "주의", bad: "불가", gray: "판단 근거 없음" };
+const LV = { ok: "가능", warn: "주의", bad: "불가", gray: "판단 근거 없음(확인 필요)" };
 function verdictView(r, title, question) {
   const box = el("div", { class: "panel" });
   box.append(el("div", { class: "verdict " + r.verdict },
@@ -352,7 +362,7 @@ function fillPreExample() {
     $("#p-start").value = s; $("#p-end").value = e; $("#p-dest").value = "부산";
     $("#p-apply").value = addDays(s, -1); $("#p-report").value = addDays(e, 3); $("#p-submit").value = t;
     $("#p-receipts").innerHTML = "";
-    addReceipt({ kind: "숙박", date: e, amount: 95000 });
+    addReceipt({ kind: "숙박", date: e, amount: 190000 });  // 2박 합계(1박 95,000원 → 광역시 상한 80,000원 초과)
     addReceipt({ kind: "운임", date: s, amount: 59800 });
     $$(".p-doc").forEach(c => c.checked = false);
   } else {

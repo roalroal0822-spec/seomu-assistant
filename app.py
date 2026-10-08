@@ -1,5 +1,6 @@
 """서무비서 웹 서버."""
 import base64
+import re
 import shutil
 import tempfile
 import time
@@ -13,6 +14,7 @@ from core.export import export
 from core.llm import LLM
 from core.loaders import SUPPORTED, load_bytes
 from core.server import App, HttpError, file_response
+from core.sources import safe_parts
 from core.store import Store
 from core.textutil import similarity
 
@@ -148,20 +150,48 @@ def kb_upload(req):
         raise HttpError(400, "잘못된 층")
     body = req.json
     check_role(layer, body.get("role"))
-    sub = body.get("folder", "")
-    saved = []
-    for f in body.get("files", []):
-        name = Path(f["path"].replace("\\", "/")).name
-        if Path(name).suffix.lower() not in SUPPORTED:
+    base = (KB_ROOT / layer).resolve()
+    sub = _safe_folder(layer, body.get("folder", ""))
+    saved, skipped = [], []
+    files = body.get("files", [])
+    if not isinstance(files, list):
+        raise HttpError(400, "올린 파일 목록 형식이 올바르지 않습니다")
+    for f in files:
+        try:
+            name = safe_parts(str(f.get("path", "")))[-1]
+        except (ValueError, AttributeError):
+            raise HttpError(400, "파일 이름이 올바르지 않습니다") from None
+        name = RX_BAD_NAME.sub("_", name).strip(" .")
+        if not name or Path(name).suffix.lower() not in SUPPORTED:
+            skipped.append(name or "(이름 없음)")
             continue
-        target = KB_ROOT / layer / sub / name
+        target = (base / sub / name).resolve()
+        if base not in target.parents:  # 작업 폴더 밖으로 나가는 경로는 막는다
+            raise HttpError(400, "등록할 수 없는 위치입니다")
+        try:
+            data = base64.b64decode(f.get("b64", ""), validate=True)
+        except (ValueError, TypeError):
+            raise HttpError(400, f"파일 내용을 읽지 못했습니다: {name}") from None
         target.parent.mkdir(parents=True, exist_ok=True)
         if target.exists():
             _backup(target)
-        target.write_bytes(base64.b64decode(f["b64"]))
+        target.write_bytes(data)
         saved.append(name)
     rebuild(f"{LAYERS[layer]}에 {len(saved)}개 등록: {', '.join(saved)}")
-    return {"saved": saved}
+    return {"saved": saved, "skipped": skipped}
+
+
+# 층별로 쓸 수 있는 하위 폴더. 화면의 선택 상자와 같다.
+KB_FOLDERS = {"org": ("", "규정", "서식"), "common": ("",), "personal": ("",)}
+RX_BAD_NAME = re.compile(r'[\x00-\x1f<>:"/\\|?*]')
+
+
+def _safe_folder(layer, folder):
+    """업로드 하위 폴더는 정해진 이름만 허용한다(절대경로·'..'·임의 폴더 금지)."""
+    folder = (folder or "").strip().strip("/\\")
+    if folder not in KB_FOLDERS.get(layer, ("",)):
+        raise HttpError(400, f"등록할 수 없는 폴더입니다. 가능한 폴더: {', '.join(x or '(기본)' for x in KB_FOLDERS.get(layer, ('',)))}")
+    return folder
 
 
 @app.post("/api/kb/<layer>/delete")
@@ -385,7 +415,7 @@ def revision_apply(req):
 @app.post("/api/chat")
 def chat(req):
     k = kb()
-    text = (req.json.get("text") or "").strip()
+    text = str(req.json.get("text") or "").strip()
     if not text:
         raise HttpError(400, "상황을 입력해 주세요")
     res = assistant.respond(k, STATE["cards"], text, today(), llm)
@@ -395,7 +425,7 @@ def chat(req):
         case = {"id": time.strftime("%Y%m%d%H%M%S") + uuid.uuid4().hex[:3], "created": _now(), "text": text,
                 "card_id": res["card"]["id"], "card_name": res["card"]["name"], "slots": res["slots"],
                 "steps": [{"title": s["title"], "due": s["due"], "deadline": s["deadline_label"],
-                           "done": s["state"] == "past", "skipped": s["state"] == "past"} for s in res["steps"]],
+                           "done": s["state"] in ("past", "na"), "skipped": s["state"] in ("past", "na")} for s in res["steps"]],
                 "documents": [], "closed": False}
         cases = store.read("cases.json", [])
         # 같은 상황을 다시 물으면 새 건을 만들지 않고 진행 중인 건을 새 계산으로 바꾼다
@@ -517,7 +547,7 @@ def _rules():
 
 @app.post("/api/simulate")
 def simulate(req):
-    text = (req.json.get("text") or "").strip()
+    text = str(req.json.get("text") or "").strip()
     if not text:
         raise HttpError(400, "상황을 입력해 주세요")
     r = rulelib.simulate(kb(), STATE["cards"], _rules(), text, today())
@@ -535,6 +565,8 @@ def precheck_spec(req):
 @app.post("/api/precheck")
 def precheck(req):
     b = req.json
+    if not isinstance(b, dict):
+        raise HttpError(400, "점검할 내용을 보내 주세요")
     r = rulelib.precheck(kb(), STATE["cards"], _rules(), b.get("kind"), b.get("fields") or {}, today())
     if r.get("error"):
         raise HttpError(400, r["error"])
@@ -546,7 +578,7 @@ def precheck(req):
 def check_export(req):
     """시뮬레이터·사전점검 결과를 문서로 저장."""
     r = req.json
-    mark = {"ok": "정상", "warn": "확인 필요", "bad": "위반 가능성", "gray": "판단 근거 없음"}
+    mark = {"ok": "정상", "warn": "확인 필요", "bad": "위반 가능성", "gray": "판단 근거 없음(확인 필요)"}
     blocks = [("title", r.get("title") or "규정 점검 결과"), ("p", f"판정: {r.get('label', '')} · 기준일: {r.get('today', today().isoformat())} · 점검 방식: {r.get('mode', '')}")]
     if r.get("question"):
         blocks.append(("p", f"상황: {r['question']}"))

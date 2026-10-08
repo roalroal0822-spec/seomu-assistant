@@ -18,7 +18,7 @@ LAYERS = {"common": "공통 기준", "org": "기관 규정", "personal": "개인
 
 SYN = {
     "출장": ["출장", "여비", "정산", "출장비", "교통비", "숙박", "다녀", "KTX", "기차"],
-    "휴가": ["휴가", "연가", "병가", "쉬", "아파", "진단서", "월차"],
+    "휴가": ["휴가", "연가", "병가", "연차", "쉬", "아파", "진단서", "월차", "반차"],
     "초과근무": ["초과근무", "야근", "시간외", "늦게까지", "주말근무"],
     "물품": ["물품", "구매", "사야", "비품", "소모품", "검수", "납품", "구입"],
     "법인카드": ["법인카드", "카드", "결제", "사용 내역"],
@@ -204,10 +204,19 @@ class Knowledge:
         for f in re.findall(r"\{\{\s*([^{}]+?)\s*\}\}", text):
             if f not in fields:
                 fields.append(f)
+        mode = "placeholder"
+        if not fields and d.ext == ".hwpx":
+            # 자리표시가 없으면 표의 항목 이름(성명·소속·출장지 …) 오른쪽 빈 칸을 채운다
+            from forms import label_fields
+            try:
+                fields = label_fields((self.root / layer / d.relpath).read_bytes())
+            except OSError:
+                fields = []
+            mode = "label" if fields else "none"
         m = re.search(r"별지\s*(\d+)", d.name)
         name = re.sub(r"^별지\s*\d+[_\-. ]*", "", Path(d.name).stem)
         return {"id": file_id(layer, d.relpath), "layer": layer, "rel": d.relpath, "name": name,
-                "no": int(m.group(1)) if m else None, "fields": fields, "ext": d.ext}
+                "no": int(m.group(1)) if m else None, "fields": fields, "ext": d.ext, "fill_mode": mode}
 
     # ------------------------------------------------------------ 절차 카드 만들기
     def extract_procedures(self):
