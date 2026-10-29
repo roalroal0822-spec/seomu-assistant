@@ -15,6 +15,10 @@ function dTag(s) {
   return el("span", { class: "tag " + cls }, `${s.due} (${d < 0 ? "D+" + (-d) : "D-" + d})`);
 }
 
+function maskNote(out, r) {
+  if (r.masked && r.masked.length) out.append(el("p", { class: "small muted" }, `※ 적은 내용의 개인정보(${r.masked.join(", ")})를 ○○○로 가린 뒤 처리했습니다.`));
+}
+
 async function ask(text) {
   text = (text || $("#say").value).trim();
   if (!text) return;
@@ -26,6 +30,7 @@ async function ask(text) {
   r.question = text;
   LAST = r;
   out.innerHTML = "";
+  maskNote(out, r);
   if (r.type === "none") {
     const d = r.delegation;
     out.append(el("div", { class: "panel" }, el("p", {}, r.text),
@@ -297,6 +302,7 @@ async function simulate(text) {
   out.append(el("div", { class: "panel" }, el("span", { class: "spinner" }), " 규정과 대조하는 중"));
   const r = await api("POST", "/api/simulate", { text });
   out.innerHTML = "";
+  maskNote(out, r);
   out.append(verdictView(r, "업무 시뮬레이션 결과", text));
 }
 
@@ -387,6 +393,7 @@ async function runPre() {
   const r = await api("POST", "/api/precheck", { kind: PRE.kind, fields });
   r.today = PRE.spec.today;
   const out = $("#pre-out"); out.innerHTML = "";
+  maskNote(out, r);
   out.append(verdictView(r, "제출 전 사전점검 결과 (" + PRE.spec.kinds[PRE.kind].name + ")", ""));
   out.scrollIntoView({ behavior: "smooth", block: "start" });
 }
@@ -410,7 +417,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   ["출장비 정산을 10일 뒤에 제출하면 어떻게 돼?", "법인카드로 개인 물품을 같이 결제했다면?", "결재 없이 먼저 물품을 구매하면?",
    "노트북 300만원짜리 사도 돼?", "연가를 3일 쓰려는데 2일 전에 신청하면?", "출장비 정산을 5일 뒤에 내면?"]
     .forEach(x => $("#sim-examples").append(el("span", { class: "chip", onclick: () => simulate(x) }, x)));
-  setupTabs(id => ({ pre: renderPre, cases: renderCases, cards: renderCards, kb: renderKB, profile: renderProfile, log: renderLog }[id] || (() => {}))());
+  setupTabs(id => ({ pre: renderPre, cases: renderCases, cards: renderCards, kb: renderKB, profile: renderProfile, log: renderLog, about: () => renderAbout() }[id] || (() => {}))());
   const t = await api("GET", "/api/today");
   $("#today-note").textContent = `기준일: ${t.today} · 등록된 규정에서만 답하고, 모든 안내에 근거 조문을 붙입니다.`;
 });

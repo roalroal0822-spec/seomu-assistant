@@ -7,7 +7,7 @@ from core.textutil import parse_relative_date, RE_FULL_DATE, RE_MD
 
 from knowledge import SYN, deadline_label
 
-AFTER_CUES = re.compile(r"다녀왔|다녀온|다녀와서|갔다\s*왔|끝났|끝나고|마쳤|마치고|복귀|납품\s*(됐|되었|받)|받았|했어요|했는데|후에|지났")
+AFTER_CUES = re.compile(r"다녀왔|다녀온|다녀와서|갔다\s*왔|끝났|끝나고|마쳤|마치고|복귀|납품\s*(됐|되었|받)|받았|했어요|했는데|후에|지났|샀어|썼어|결제했|구매했|사용했")
 BEFORE_CUES = re.compile(r"(?<!다녀)가요|갑니다|갈\s|가려|갈\s*예정|예정|하려고|하려는|할\s*거|계획|신청하려|다음\s*주|내일|모레|쓰려|사려|열려고|개최")
 
 REGION_METRO = ("부산", "대구", "인천", "광주", "대전", "울산", "세종")
@@ -45,6 +45,15 @@ def extract_slots(text, today):
                     if d > today + timedelta(days=200) or (after and d > today):
                         d = date(today.year - 1, d.month, d.day)  # 다녀왔다는 말인데 날짜가 앞이면 지난해
                 dates.append(d)
+            except ValueError:
+                pass
+    if len(dates) == 1:  # '10월 13일~14일', '10월 13일부터 14일까지': 끝 날짜는 같은 달
+        m = re.search(r"\d{1,2}\s*월\s*\d{1,2}\s*일\s*(?:~|-|부터)\s*(\d{1,2})\s*일", text)
+        if m:
+            try:
+                e = dates[0].replace(day=int(m.group(1)))
+                if e > dates[0]:
+                    dates.append(e)
             except ValueError:
                 pass
     if not dates:
@@ -270,6 +279,19 @@ def team_of(kb, reg_id):
     return "소속 부서장" if "부서장" in text else "규정 소관 부서"
 
 
+RX_NUM = re.compile(r"\d+")
+
+
+def reply_grounded(reply, text, slots, today):
+    """모델 안내 문장의 숫자가 상황 문장·읽어 낸 정보·오늘 날짜에 모두 있는지. 날짜·기한·금액은 규칙으로 따로 보여 주므로
+    문장에 새 숫자가 끼면(지어낸 기한·금액) 문장을 버린다. 모델이 보탠 정보는 근거로 치지 않는다."""
+    known = set(RX_NUM.findall(text)) | set(RX_NUM.findall(today.isoformat()))
+    for v in slots.values():
+        known |= set(RX_NUM.findall(str(v)))
+    known |= {str(int(x)) for x in known}
+    return all(n in known or str(int(n)) in known for n in RX_NUM.findall(reply))
+
+
 def respond(kb, cards, text, today=None, llm=None):
     today = today or date.today()
     slots = extract_slots(text, today)
@@ -280,6 +302,7 @@ def respond(kb, cards, text, today=None, llm=None):
     llm_note, llm_reply = "", ""
     if llm is not None and llm.enabled and ranked:
         cands = "\n".join(f"- id={c['id']} 이름={c['name']} 단계={', '.join(s['title'] for s in c['steps'])}" for c, _ in ranked)
+        rule_slots = dict(slots)
         try:
             out = llm.json(LLM_SYSTEM, f"오늘: {today.isoformat()}\n후보 절차:\n{cands}\n\n상황: {text}")
             ids = {c["id"]: c for c, _ in ranked}
@@ -293,6 +316,9 @@ def respond(kb, cards, text, today=None, llm=None):
                 if isinstance(out.get(k), int) and out[k] > 0:
                     slots.setdefault(k, out[k])
             llm_reply = (out.get("reply") or "").strip()
+            if llm_reply and not reply_grounded(llm_reply, text, rule_slots, today):
+                llm_reply = ""
+                llm_note = "모델이 쓴 안내 문장에 상황·규정에 없는 숫자가 있어 빼고 규칙 기반 안내만 보여 드립니다."
         except Exception:
             llm_note = "모델 응답을 받지 못해 규칙 기반 결과를 보여 드립니다(모델 연결 설정을 확인하세요)."
 

@@ -9,6 +9,7 @@ from datetime import date
 from pathlib import Path
 
 from core import regparse, webcommon
+from core.pii import mask, mask_fields
 from core.config import Config
 from core.export import export
 from core.llm import LLM
@@ -23,7 +24,7 @@ import rules as rulelib
 import forms as formlib
 from knowledge import LAYERS, Knowledge, deadline_label
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 HERE = Path(__file__).resolve().parent
 SAMPLE = HERE / "sample_data"
 
@@ -33,6 +34,30 @@ store = Store(cfg.data_dir)
 KB_ROOT = store.path("kb")
 app = App(HERE / "static")
 webcommon.register(app, cfg, llm, "서무비서", VERSION)
+
+ABOUT = {
+    "lead": "절차·기한·판정은 규정 조문에서 뽑은 규칙과 날짜 계산으로 정하고, 모델은 상황 문장 읽기와 안내 문장만 돕습니다. 모델이 없어도 같은 안내가 나옵니다.",
+    "pipeline": [("규정 읽기", "규정·지침·서식(hwpx·hwp·docx·pdf 등)을 조문 단위로 나누고 모든 문장에 파일·조문 위치를 붙임"),
+                 ("절차 카드", "'…일 전까지', '…날부터 …일 이내' 문장에서 단계·기한·서류·서식·담당 부서를 뽑음"),
+                 ("상황 읽기", "상황 문장에서 날짜·기간·출장지·금액·전후(다녀왔다/갈 예정)를 규칙으로 읽음"),
+                 ("절차 고르기", "검색 상위 3개 후보 중에서만 고름(모델 연결 시 모델이 후보 안에서 고름)"),
+                 ("기한·판정 계산", "단계별 날짜·D-day, 시뮬레이터 가능·주의·불가, 사전점검 정상·확인 필요·위반 가능성"),
+                 ("근거 카드", "안내·판정마다 근거 조문 원문과 해결 방법, 결재선·여비 계산을 붙임")],
+    "guards": ["모델은 후보 3개 밖의 절차를 고를 수 없습니다.",
+               "날짜·기한·D-day는 모델이 아니라 규정의 기한 문장으로 계산합니다.",
+               "규칙으로 읽은 정보가 모델이 읽은 정보보다 우선하고, 모델 날짜는 YYYY-MM-DD 형식일 때만 받습니다.",
+               "모델 안내 문장에 상황·규칙에 없는 숫자(지어낸 기한·금액)가 있으면 문장을 버립니다.",
+               "규정에서 근거를 찾지 못하면 '가능'이라고 하지 않고 '판단 근거 없음(확인 필요)'과 담당 부서를 안내합니다.",
+               "기관 규정이 공통 기준과 다르면 두 기준을 함께 표시합니다.",
+               "규정 개정은 신구조문대비와 바뀌는 절차를 먼저 보여 주고 확인 뒤 반영하며, 이전 판을 보관합니다.",
+               "상황 문장에 적은 개인정보(주민번호·전화·계좌·카드 등)는 저장·모델 전달 전에 ○○○로 가립니다.",
+               "원본 규정·서식은 읽기만 하고, 서식 초안은 사본에 채웁니다."],
+    "data": ["시연 규정·서식은 가상의 공공기관 기준으로 지어낸 모의자료입니다. 실제 기관 규정으로 바꾸면 그대로 동작합니다.",
+             "공휴일은 기한 계산에 넣지 않습니다(달력 기준 일수).",
+             "'내 정보'(성명·소속·연락처)는 서식 초안을 채우는 데만 쓰며 가리지 않습니다. 이 PC의 작업 폴더(data)에만 저장됩니다.",
+             "자료와 기록은 이 PC의 작업 폴더에만 저장되고, 모델을 연결하지 않으면 PC 밖으로 나가지 않습니다."],
+}
+webcommon.register_about(app, HERE, ABOUT)
 
 
 @app.get("/api/today")
@@ -418,9 +443,11 @@ def chat(req):
     text = str(req.json.get("text") or "").strip()
     if not text:
         raise HttpError(400, "상황을 입력해 주세요")
+    text, masked = mask(text)
     res = assistant.respond(k, STATE["cards"], text, today(), llm)
     res["today"] = today().isoformat()
     res["mode"] = llm.label
+    res["masked"] = masked
     if res["type"] == "procedure":
         case = {"id": time.strftime("%Y%m%d%H%M%S") + uuid.uuid4().hex[:3], "created": _now(), "text": text,
                 "card_id": res["card"]["id"], "card_name": res["card"]["name"], "slots": res["slots"],
@@ -550,8 +577,10 @@ def simulate(req):
     text = str(req.json.get("text") or "").strip()
     if not text:
         raise HttpError(400, "상황을 입력해 주세요")
+    text, masked = mask(text)
     r = rulelib.simulate(kb(), STATE["cards"], _rules(), text, today())
     r["today"] = today().isoformat()
+    r["masked"] = masked
     log("업무 시뮬레이터", f"{text} → {r['label']}")
     return r
 
@@ -567,9 +596,12 @@ def precheck(req):
     b = req.json
     if not isinstance(b, dict):
         raise HttpError(400, "점검할 내용을 보내 주세요")
-    r = rulelib.precheck(kb(), STATE["cards"], _rules(), b.get("kind"), b.get("fields") or {}, today())
+    fields = dict(b.get("fields") or {})
+    masked = mask_fields(fields, [k for k, v in fields.items() if isinstance(v, str)])
+    r = rulelib.precheck(kb(), STATE["cards"], _rules(), b.get("kind"), fields, today())
     if r.get("error"):
         raise HttpError(400, r["error"])
+    r["masked"] = masked
     log("사전점검", f"{b.get('kind')} → {r['label']} (위반 가능성 {r['counts']['bad']}, 확인 필요 {r['counts']['warn']})")
     return r
 

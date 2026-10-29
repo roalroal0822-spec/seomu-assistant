@@ -178,8 +178,14 @@ def _threshold(sentence):
     return int(m.group(1)) if m else None
 
 
+DAY_WORDS = [("일주일", "7일"), ("하루", "1일"), ("이틀", "2일"), ("사흘", "3일"), ("나흘", "4일"), ("닷새", "5일"),
+             ("엿새", "6일"), ("이레", "7일"), ("열흘", "10일"), ("보름", "15일")]
+
+
 def _timing(text, slots, today):
     """질문 속 시점: (방향, 일수, 설명). 방향 before=기준일 전, after=기준일 뒤, same=당일."""
+    for w, n in DAY_WORDS:  # '이틀 전에', '열흘 뒤' 같은 우리말 날수
+        text = text.replace(w, n)
     m = RX_DELAY_AFTER.search(text)
     if m:
         n = int(m.group(1)) * (7 if m.group(2) == "주" else 1)
@@ -349,9 +355,14 @@ def simulate(kb, cards, rules, text, today=None):
         qm = RX_QUOTES.search(text)
         quotes = _num(qm.group(1) or qm.group(2)) if qm else None
         for ru in rules:
-            if ru["type"] != "amount" or not _hits(ru["op"], amount, ru["value"]):
+            if ru["type"] != "amount":
                 continue
             if card and ru["basis"]["reg_id"] != card["reg_id"] and len(q & ru["kw"]) < 2:
+                continue
+            if not _hits(ru["op"], amount, ru["value"]):
+                if ru["count"] and "견적" in ru["text"] and quotes is not None:  # 기준 금액 이하면 견적 요건 대상이 아님
+                    findings.append({"level": "ok", "title": f"{_won_fmt(amount)}은 {_won_fmt(ru['value'])} {ru['op']} 기준에 해당하지 않습니다",
+                                     "detail": f"{ru['text']} (말씀하신 금액 {_won_fmt(amount)}, 견적 {quotes}개)", "basis": ru["basis"], "fix": []})
                 continue
             if _other_team(ru["text"]):
                 findings.append({"level": "ok", "ref": True, "title": f"참고: {_won_fmt(ru['value'])} {ru['op']} 기준(담당 부서 처리)",

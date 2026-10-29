@@ -148,6 +148,8 @@ def parse_relative_date(text, today=None):
         return today - timedelta(days=1)
     if "오늘" in text:
         return today
+    if "모레" in text:
+        return today + timedelta(days=2)
     if "내일" in text:
         return today + timedelta(days=1)
     m = re.search(r"(\d+)\s*일\s*전", text)

@@ -1,0 +1,102 @@
+{
+ "date": "2026-10-29",
+ "provider": "openai",
+ "mock": true,
+ "models": [
+  {
+   "model": "mock-a",
+   "passed": 2,
+   "total": 2,
+   "items": [
+    {
+     "name": "연결 확인",
+     "ok": true,
+     "seconds": 0.1,
+     "note": "확인"
+    },
+    {
+     "name": "서무비서: 상황 문장 → 절차 선택·정보 추출(출장지·날짜·단계 일치)",
+     "ok": true,
+     "seconds": 0.0,
+     "note": "선택 절차: 출장 절차 (여비규정), 출장지 부산, 날짜 2026-10-06, 단계 after"
+    }
+   ]
+  },
+  {
+   "model": "mock-b",
+   "passed": 2,
+   "total": 2,
+   "items": [
+    {
+     "name": "연결 확인",
+     "ok": true,
+     "seconds": 0.0,
+     "note": "확인"
+    },
+    {
+     "name": "서무비서: 상황 문장 → 절차 선택·정보 추출(출장지·날짜·단계 일치)",
+     "ok": true,
+     "seconds": 0.0,
+     "note": "선택 절차: 출장 절차 (여비규정), 출장지 부산, 날짜 2026-10-06, 단계 after"
+    }
+   ]
+  },
+  {
+   "model": "mock-gemma",
+   "passed": 2,
+   "total": 2,
+   "items": [
+    {
+     "name": "연결 확인 [젬마(Gemma)]",
+     "ok": true,
+     "seconds": 0.0,
+     "note": "확인"
+    },
+    {
+     "name": "서무비서: 상황 문장 → 절차 선택·정보 추출(출장지·날짜·단계 일치)",
+     "ok": true,
+     "seconds": 0.0,
+     "note": "선택 절차: 출장 절차 (여비규정), 출장지 부산, 날짜 2026-10-06, 단계 after"
+    }
+   ]
+  },
+  {
+   "model": "mock-exaone",
+   "passed": 2,
+   "total": 2,
+   "items": [
+    {
+     "name": "연결 확인 [엑사원(EXAONE)]",
+     "ok": true,
+     "seconds": 0.0,
+     "note": "확인"
+    },
+    {
+     "name": "서무비서: 상황 문장 → 절차 선택·정보 추출(출장지·날짜·단계 일치)",
+     "ok": true,
+     "seconds": 0.0,
+     "note": "선택 절차: 출장 절차 (여비규정), 출장지 부산, 날짜 2026-10-06, 단계 after"
+    }
+   ]
+  },
+  {
+   "model": "mock-gpt-oss",
+   "passed": 2,
+   "total": 2,
+   "items": [
+    {
+     "name": "연결 확인 [GPT-OSS]",
+     "ok": true,
+     "seconds": 0.0,
+     "note": "확인"
+    },
+    {
+     "name": "서무비서: 상황 문장 → 절차 선택·정보 추출(출장지·날짜·단계 일치)",
+     "ok": true,
+     "seconds": 0.0,
+     "note": "선택 절차: 출장 절차 (여비규정), 출장지 부산, 날짜 2026-10-06, 단계 after"
+    }
+   ]
+  }
+ ]
+}
