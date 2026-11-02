@@ -28,12 +28,12 @@ VERSION = "1.1.0"
 HERE = Path(__file__).resolve().parent
 SAMPLE = HERE / "sample_data"
 
-cfg = Config(HERE, {"app_title": "서무비서", "port": 8102})
+cfg = Config(HERE, {"app_title": "올바로(서무비서)", "port": 8102})
 llm = LLM(cfg["llm"])
 store = Store(cfg.data_dir)
 KB_ROOT = store.path("kb")
 app = App(HERE / "static")
-webcommon.register(app, cfg, llm, "서무비서", VERSION)
+webcommon.register(app, cfg, llm, "올바로(서무비서)", VERSION)
 
 ABOUT = {
     "lead": "절차·기한·판정은 규정 조문에서 뽑은 규칙과 날짜 계산으로 정하고, 모델은 상황 문장 읽기와 안내 문장만 돕습니다. 모델이 없어도 같은 안내가 나옵니다.",
@@ -646,13 +646,13 @@ def guide_export(req):
 
 def main():
     import argparse
-    ap = argparse.ArgumentParser(description="서무비서 실행")
+    ap = argparse.ArgumentParser(description="올바로(서무비서) 실행")
     ap.add_argument("--port", type=int, default=cfg["port"])
     ap.add_argument("--host", default=cfg["host"])
     ap.add_argument("--no-browser", action="store_true")
     a = ap.parse_args()
     kb()
-    app.run(a.host, a.port, not a.no_browser, "서무비서")
+    app.run(a.host, a.port, not a.no_browser, "올바로(서무비서)")
 
 
 if __name__ == "__main__":
